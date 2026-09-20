@@ -1,4 +1,4 @@
-# app.py - Instagram Info API (Render Ready)
+# main.py - Instagram Info API (Render Ready)
 from flask import Flask, jsonify, request
 import instaloader
 from instaloader import Instaloader, Profile
@@ -173,7 +173,6 @@ class InstagramScanner:
     def scan_profile(self, username):
         start_time = time.time()
         
-        # Validate username
         if not username:
             return {
                 "status": "error",
@@ -183,7 +182,6 @@ class InstagramScanner:
         
         username = username.strip().lstrip('@')
         
-        # Instagram username validation
         if not re.match(r'^[A-Za-z0-9._]{1,30}$', username):
             return {
                 "status": "error",
@@ -204,7 +202,6 @@ class InstagramScanner:
             
             estimated_year = self.estimate_account_creation_year(profile.userid)
             
-            # Safe attribute extraction
             def safe_get(obj, attr, default=None):
                 try:
                     val = getattr(obj, attr, default)
@@ -212,23 +209,17 @@ class InstagramScanner:
                 except:
                     return default
             
-            # Business info
             is_business = safe_get(profile, 'is_business_account', False)
             is_professional = safe_get(profile, 'is_professional_account', False)
             category = safe_get(profile, 'category_name')
             business_category = safe_get(profile, 'business_category_name')
             
-            # Highlights
             highlight_count = safe_get(profile, 'highlight_reel_count', 0) or 0
             has_highlights = safe_get(profile, 'has_highlight_reels', False) or (highlight_count > 0)
             
-            # IGTV
             igtv_count = safe_get(profile, 'igtv_count', 0) or 0
-            
-            # Recently joined
             is_joined_recently = safe_get(profile, 'is_joined_recently', False)
             
-            # Bio links
             bio_links = []
             try:
                 if hasattr(profile, 'biography_links'):
@@ -305,10 +296,8 @@ class InstagramScanner:
             }
         except Exception as e:
             error_str = str(e)
-            # Check for 401
             if "401" in error_str:
                 time.sleep(2)
-                # Retry once
                 try:
                     self.fingerprint.rotate()
                     profile = Profile.from_username(self.loader.context, username)
@@ -331,7 +320,7 @@ class InstagramScanner:
             }
 
 
-# Global scanner instance
+# Global scanner
 scanner = InstagramScanner()
 
 
