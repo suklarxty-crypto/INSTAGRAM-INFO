@@ -1,4 +1,4 @@
-# app.py - Instagram Info API (With Proxy Rotation)
+# main.py - Instagram Info API (With Proxy Rotation)
 from flask import Flask, jsonify, request
 import instaloader
 from instaloader import Instaloader, Profile
@@ -27,6 +27,36 @@ VALID_KEYS = {
 }
 
 # ==============================================
+# AUTHENTICATION - YE ZAROORI HAI
+# ==============================================
+
+def require_api_key(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        api_key = request.args.get('key', '').strip()
+        
+        if not api_key:
+            return jsonify({
+                "status": "error",
+                "error_code": "MISSING_API_KEY",
+                "message": "API key required",
+                "usage": "/insta?user=username&key=your_api_key",
+                "credit": {"username": "@KINGFFAIAK47x", "made_by": "ANSH AFT"}
+            }), 401
+        
+        if api_key not in VALID_KEYS:
+            return jsonify({
+                "status": "error",
+                "error_code": "INVALID_API_KEY",
+                "message": "Invalid API key",
+                "credit": {"username": "@KINGFFAIAK47x", "made_by": "ANSH AFT"}
+            }), 403
+        
+        return f(*args, **kwargs)
+    return decorated_function
+
+
+# ==============================================
 # PROXY LIST
 # ==============================================
 
@@ -45,10 +75,7 @@ PROXIES = [
 
 
 def parse_proxy(proxy_str):
-    """
-    Proxy string ko dict mein convert karta hai
-    Format: ip:port:username:password
-    """
+    """Proxy string ko dict mein convert karta hai"""
     try:
         parts = proxy_str.split(':')
         if len(parts) == 4:
@@ -105,13 +132,10 @@ class UltimateDeviceFingerprint:
     def __init__(self):
         self.fingerprint = {}
         self.generation_count = 0
-        self.rotation_counter = 0
-        self.rotation_interval = 3
         self._generate_fingerprint()
     
     def _generate_fingerprint(self):
         self.generation_count += 1
-        self.rotation_counter += 1
         system = platform.system()
         
         browsers = [
@@ -121,37 +145,18 @@ class UltimateDeviceFingerprint:
                 'user_agent': f"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{random.randint(110, 122)}.0.0.0 Safari/537.36"
             },
             {
-                'name': 'Chrome',
-                'version': f"{random.randint(110, 122)}.0.{random.randint(6000, 7000)}.{random.randint(0, 200)}",
-                'user_agent': f"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_{random.randint(14, 15)}_{random.randint(0, 4)}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{random.randint(110, 122)}.0.0.0 Safari/537.36"
-            },
-            {
                 'name': 'Firefox',
                 'version': f"{random.randint(115, 124)}.0",
                 'user_agent': f"Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:{random.randint(115, 124)}.0) Gecko/20100101 Firefox/{random.randint(115, 124)}.0"
             },
-            {
-                'name': 'Edge',
-                'version': f"{random.randint(110, 122)}.0.{random.randint(2000, 3000)}.{random.randint(0, 200)}",
-                'user_agent': f"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{random.randint(110, 122)}.0.0.0 Safari/537.36 Edg/{random.randint(110, 122)}.0.0.0"
-            },
         ]
         
         browser = random.choice(browsers)
-        screens = [(1920, 1080), (2560, 1440), (1366, 768), (1440, 900)]
-        width, height = random.choice(screens)
-        
-        languages = ['en-US', 'en-GB', 'en-IN']
-        timezones = ['Asia/Kolkata', 'America/New_York', 'Europe/London']
         
         self.fingerprint = {
             'browser': browser,
-            'screen': {'width': width, 'height': height},
-            'language': random.choice(languages),
-            'timezone': random.choice(timezones),
             'platform': system,
             'fingerprint_id': hashlib.md5(str(time.time() + random.random()).encode()).hexdigest(),
-            'generated_at': datetime.now().isoformat(),
         }
     
     def get_fingerprint(self):
@@ -173,7 +178,6 @@ class InstagramScanner:
         self.current_proxy = None
     
     def initialize_loader(self, proxy_dict=None):
-        """Initialize Instaloader with optional proxy"""
         try:
             fp = self.fingerprint.get_fingerprint()
             user_agent = fp['browser']['user_agent']
@@ -186,7 +190,6 @@ class InstagramScanner:
                 quiet=True
             )
             
-            # Set proxy if provided
             if proxy_dict and hasattr(self.loader, 'context'):
                 try:
                     if hasattr(self.loader.context, '_session'):
@@ -224,7 +227,6 @@ class InstagramScanner:
         return None
     
     def _extract_profile_data(self, profile, start_time, proxy_used):
-        """Extract profile data"""
         response_time = (time.time() - start_time) * 1000
         estimated_year = self.estimate_account_creation_year(profile.userid)
         
@@ -234,17 +236,6 @@ class InstagramScanner:
                 return val if val not in [None, '', 'None'] else default
             except:
                 return default
-        
-        is_business = safe_get(profile, 'is_business_account', False)
-        is_professional = safe_get(profile, 'is_professional_account', False)
-        category = safe_get(profile, 'category_name')
-        business_category = safe_get(profile, 'business_category_name')
-        
-        highlight_count = safe_get(profile, 'highlight_reel_count', 0) or 0
-        has_highlights = safe_get(profile, 'has_highlight_reels', False) or (highlight_count > 0)
-        
-        igtv_count = safe_get(profile, 'igtv_count', 0) or 0
-        is_joined_recently = safe_get(profile, 'is_joined_recently', False)
         
         bio_links = []
         try:
@@ -269,20 +260,20 @@ class InstagramScanner:
                 "biography": (safe_get(profile, 'biography', '') or '')[:200] or 'No bio available',
                 "is_private": safe_get(profile, 'is_private', False),
                 "is_verified": safe_get(profile, 'is_verified', False),
-                "is_business_account": is_business,
-                "is_professional_account": is_professional,
-                "category_name": category,
-                "business_category_name": business_category,
+                "is_business_account": safe_get(profile, 'is_business_account', False),
+                "is_professional_account": safe_get(profile, 'is_professional_account', False),
+                "category_name": safe_get(profile, 'category_name'),
+                "business_category_name": safe_get(profile, 'business_category_name'),
                 "profile_pic_url_hd": safe_get(profile, 'profile_pic_url_hd') or safe_get(profile, 'profile_pic_url'),
                 "external_url": safe_get(profile, 'external_url'),
                 "followers": safe_get(profile, 'followers', 0),
                 "following": safe_get(profile, 'followees', 0),
                 "posts": safe_get(profile, 'mediacount', 0),
-                "igtv_count": igtv_count,
-                "highlight_count": highlight_count,
-                "has_highlights": has_highlights,
+                "igtv_count": safe_get(profile, 'igtv_count', 0) or 0,
+                "highlight_count": safe_get(profile, 'highlight_reel_count', 0) or 0,
+                "has_highlights": safe_get(profile, 'has_highlight_reels', False),
                 "account_creation_year": estimated_year,
-                "is_joined_recently": is_joined_recently,
+                "is_joined_recently": safe_get(profile, 'is_joined_recently', False),
                 "bio_links": bio_links
             },
             "credit": {
@@ -292,7 +283,6 @@ class InstagramScanner:
         }
     
     def scan_profile_with_proxy(self, username, proxy_dict=None):
-        """Scan profile with specific proxy"""
         start_time = time.time()
         
         try:
@@ -305,10 +295,8 @@ class InstagramScanner:
             return {"_error": str(e), "_exception": e}
     
     def scan_profile(self, username):
-        """Main scan function with proxy rotation"""
         start_time = time.time()
         
-        # Validate username
         if not username:
             return {
                 "status": "error",
@@ -325,11 +313,8 @@ class InstagramScanner:
                 "message": "Invalid Instagram username"
             }
         
-        # Try without proxy first
         all_proxies = get_all_proxies()
         random.shuffle(all_proxies)
-        
-        # Proxy list with None first (direct connection)
         proxy_attempts = [None] + all_proxies[:5]
         
         last_error = None
@@ -369,20 +354,6 @@ class InstagramScanner:
                     "error_code": "LOGIN_REQUIRED",
                     "message": "Instagram requires login"
                 }
-            except instaloader.exceptions.TooManyRequestsException:
-                # Try next proxy
-                errors_log.append({
-                    "attempt": i + 1,
-                    "error": "Rate limited, trying next proxy"
-                })
-                time.sleep(1)
-                continue
-            except instaloader.exceptions.ConnectionException as e:
-                errors_log.append({
-                    "attempt": i + 1,
-                    "error": f"Connection: {str(e)[:100]}"
-                })
-                continue
             except Exception as e:
                 errors_log.append({
                     "attempt": i + 1,
@@ -391,7 +362,6 @@ class InstagramScanner:
                 last_error = e
                 continue
         
-        # All attempts failed
         return {
             "status": "error",
             "error_code": "ALL_ATTEMPTS_FAILED",
@@ -411,11 +381,9 @@ scanner = InstagramScanner()
 
 @app.route('/', methods=['GET'])
 def home():
-    """API Info"""
     return jsonify({
         "service": "📱 Instagram Info API (Proxy Rotation)",
         "version": "1.0.0",
-        "description": "Get Instagram profile info with proxy rotation",
         "endpoints": {
             "/insta": {
                 "method": "GET",
@@ -439,10 +407,6 @@ def home():
 @app.route('/insta', methods=['GET'])
 @require_api_key
 def get_insta_info():
-    """
-    Get Instagram profile info (with proxy rotation)
-    Example: /insta?user=cristiano&key=ANSHPAPA
-    """
     username = request.args.get('user', '').strip()
     
     if not username:
@@ -473,11 +437,8 @@ def get_insta_info():
 @app.route('/proxy-test', methods=['GET'])
 @require_api_key
 def proxy_test():
-    """Test all proxies"""
     results = []
     working = 0
-    
-    # Test with Instagram
     test_url = "https://www.instagram.com/"
     
     for proxy_str in PROXIES[:10]:
@@ -527,7 +488,6 @@ def proxy_test():
 
 @app.route('/health', methods=['GET'])
 def health():
-    """Health check"""
     return jsonify({
         "status": "healthy",
         "timestamp": datetime.now().isoformat(),
@@ -562,9 +522,6 @@ if __name__ == '__main__':
     print(f"🚀 Running on: http://localhost:{port}")
     print(f"🌐 Proxies loaded: {len(PROXIES)}")
     print("\n🔑 Key: ANSHPAPA")
-    print("\n📌 ENDPOINTS:")
-    print("  GET /insta?user=cristiano&key=ANSHPAPA")
-    print("  GET /proxy-test?key=ANSHPAPA")
     print("=" * 60)
     
     app.run(host='0.0.0.0', port=port, debug=False)
