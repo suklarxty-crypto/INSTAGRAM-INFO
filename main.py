@@ -27,14 +27,11 @@ if not VALID_KEYS:
 CREDIT = {"username": "@KINGFFAIAK47x", "made_by": "ANSH AFT"}
 
 # ==============================================
-# 🌐 EXTERNAL SOURCES
+# 🌐 EXTERNAL SOURCES (private — kabhi expose nahi)
 # ==============================================
 
-# Source 1: Cloud Function (File 1 wala — POST, no key)
-CLOUD_FUNCTION_URL = "https://europe-west3-storyviewer-7a64d.cloudfunctions.net/getInstagramData"
-
-# Source 2: Render API (File 2 wala — GET, full profile)
-EXTERNAL_API_BASE = "https://instagram-info-by-ansh.onrender.com/profile/"
+_CLOUD_FUNCTION_URL = "https://europe-west3-storyviewer-7a64d.cloudfunctions.net/getInstagramData"
+_EXTERNAL_API_BASE  = "https://instagram-info-by-ansh.onrender.com/profile/"
 
 IS_VERCEL = os.environ.get("VERCEL", "") == "1" or os.environ.get("VERCEL_ENV", "") != ""
 TIMEOUT = 8 if IS_VERCEL else 30
@@ -78,7 +75,7 @@ def validate_username(username):
     return True, username
 
 # ==============================================
-# 📡 SOURCE 1: CLOUD FUNCTION (File 1 wala)
+# 📡 SOURCE 1: CLOUD FUNCTION (internal)
 # ==============================================
 
 def fetch_from_cloud_function(username):
@@ -96,13 +93,14 @@ def fetch_from_cloud_function(username):
         'content-type': "application/json; charset=utf-8"
     }
     try:
-        r = requests.post(CLOUD_FUNCTION_URL, json=payload, headers=headers, timeout=TIMEOUT)
+        r = requests.post(_CLOUD_FUNCTION_URL, json=payload, headers=headers, timeout=TIMEOUT)
         if r.status_code != 200:
-            return {"success": False, "error": f"CloudFunction HTTP {r.status_code}: {r.text[:150]}"}
+            # ⚠️ URL leak nahi — sirf status + short snippet
+            return {"success": False, "error": f"source1 HTTP {r.status_code}"}
         try:
             data = r.json()
         except json.JSONDecodeError:
-            return {"success": False, "error": "CloudFunction returned non-JSON"}
+            return {"success": False, "error": "source1 returned non-JSON"}
 
         about = data.get('result', {}).get('data', {}).get('about', {})
         main = data.get('result', {}).get('data', {})
@@ -113,18 +111,18 @@ def fetch_from_cloud_function(username):
             return {"success": False, "error": "No user data (private/deleted)"}
         return {"success": True, "data": user_data, "source": "cloudfunction"}
     except requests.exceptions.Timeout:
-        return {"success": False, "error": f"CloudFunction timeout ({TIMEOUT}s)"}
-    except requests.exceptions.ConnectionError as e:
-        return {"success": False, "error": f"CloudFunction connection error: {str(e)[:120]}"}
-    except Exception as e:
-        return {"success": False, "error": f"CloudFunction error: {str(e)[:120]}"}
+        return {"success": False, "error": f"source1 timeout ({TIMEOUT}s)"}
+    except requests.exceptions.ConnectionError:
+        return {"success": False, "error": "source1 connection error"}
+    except Exception:
+        return {"success": False, "error": "source1 unexpected error"}
 
 # ==============================================
-# 📡 SOURCE 2: RENDER API (File 2 wala)
+# 📡 SOURCE 2: RENDER API (internal)
 # ==============================================
 
 def fetch_from_external_api(username):
-    url = f"{EXTERNAL_API_BASE}{username}"
+    url = f"{_EXTERNAL_API_BASE}{username}"
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Accept": "application/json",
@@ -136,22 +134,22 @@ def fetch_from_external_api(username):
             try:
                 return {"success": True, "data": r.json(), "source": "render"}
             except Exception:
-                return {"success": False, "error": "Render API invalid JSON"}
+                return {"success": False, "error": "source2 invalid JSON"}
         elif r.status_code == 404:
             return {"success": False, "error": f"Profile @{username} not found"}
         elif r.status_code == 429:
-            return {"success": False, "error": "Render API rate limited (429)"}
+            return {"success": False, "error": "source2 rate limited (429)"}
         else:
-            return {"success": False, "error": f"Render API HTTP {r.status_code}"}
+            return {"success": False, "error": f"source2 HTTP {r.status_code}"}
     except requests.exceptions.Timeout:
-        return {"success": False, "error": f"Render API timeout ({TIMEOUT}s)"}
-    except requests.exceptions.ConnectionError as e:
-        return {"success": False, "error": f"Render connection error: {str(e)[:120]}"}
-    except Exception as e:
-        return {"success": False, "error": f"Render error: {str(e)[:120]}"}
+        return {"success": False, "error": f"source2 timeout ({TIMEOUT}s)"}
+    except requests.exceptions.ConnectionError:
+        return {"success": False, "error": "source2 connection error"}
+    except Exception:
+        return {"success": False, "error": "source2 unexpected error"}
 
 # ==============================================
-# 🎨 NORMALIZE RESPONSE (dono source ka same format)
+# 🎨 NORMALIZE RESPONSE
 # ==============================================
 
 def normalize_cloudfunction(raw):
@@ -214,19 +212,21 @@ def process_profile(username, source="auto"):
     api_result = None
     tried = []
 
-    # source=cloudfunction → sirf cloud
-    # source=render       → sirf render
-    # source=auto (default)→ cloud pehle, fail hone pe render fallback
-
     if source in ("auto", "cloudfunction"):
         api_result = fetch_from_cloud_function(username_clean)
-        tried.append({"source": "cloudfunction", "success": api_result.get("success"), "error": api_result.get("error")})
+        tried.append({
+            "source": "source1",
+            "success": api_result.get("success"),
+            "error": api_result.get("error")
+        })
 
     if (source in ("auto", "render")) and (not api_result or not api_result.get("success")):
-        if source == "auto" and api_result:
-            pass  # fallback continue
         render_result = fetch_from_external_api(username_clean)
-        tried.append({"source": "render", "success": render_result.get("success"), "error": render_result.get("error")})
+        tried.append({
+            "source": "source2",
+            "success": render_result.get("success"),
+            "error": render_result.get("error")
+        })
         if render_result.get("success"):
             api_result = render_result
 
@@ -236,29 +236,30 @@ def process_profile(username, source="auto"):
         return jsonify({
             "status": "error",
             "error_code": "ALL_SOURCES_FAILED",
-            "message": "Dono sources fail ho gaye",
+            "message": "Profile fetch failed from all sources",
             "attempts": tried,
             "username": username_clean,
             "response_time": f"{total_time}ms",
             "credit": CREDIT
         }), 400
 
-    # Normalize depending on which source succeeded
     if api_result.get("source") == "cloudfunction":
         profile = normalize_cloudfunction(api_result["data"])
         final_url = f"https://www.instagram.com/{profile['username']}/?hl=en"
+        source_label = "source1"
     else:
         profile = normalize_render(api_result["data"])
-        final_url = api_result["data"].get("final_url", f"https://www.instagram.com/{username_clean}/?hl=en")
+        final_url = api_result["data"].get("final_url",
+                    f"https://www.instagram.com/{username_clean}/?hl=en")
+        source_label = "source2"
 
     return jsonify({
         "status": "success",
-        "source": api_result.get("source"),
+        "source": source_label,
         "username": profile["username"],
         "final_url": final_url,
         "profile": profile,
         "response_time": f"{total_time}ms",
-        "attempts": tried,
         "credit": CREDIT
     }), 200
 
@@ -268,39 +269,37 @@ def process_profile(username, source="auto"):
 
 @app.route('/', methods=['GET'])
 def home():
+    # ⚠️ Koi upstream URL nahi
     return jsonify({
-        "service": "📱 Instagram Info API (Dual Source)",
+        "service": "📱 Instagram Info API",
         "version": "2.0.0",
-        "description": "Cloud Function + Render API with auto-fallback",
-        "sources": {
-            "cloudfunction": CLOUD_FUNCTION_URL,
-            "render": EXTERNAL_API_BASE
-        },
+        "description": "Get Instagram profile info",
         "endpoints": {
-            "/api/profile/{username}/key={key}": "Auto (cloud → render fallback)",
-            "/api/profile/{username}/key={key}?source=cloudfunction": "Force cloud function",
-            "/api/profile/{username}/key={key}?source=render": "Force render API",
-            "/api/instagram?username={username}&key={key}": "File 1 style (query params)",
-            "/profile/{username}?key={key}": "Old format"
+            "/api/profile/{username}/key={key}": "GET — profile info (auto fallback)",
+            "/api/profile/{username}/key={key}?source=cloudfunction": "GET — force source1",
+            "/api/profile/{username}/key={key}?source=render": "GET — force source2",
+            "/api/instagram?username={username}&key={key}": "GET — query-style",
+            "/profile/{username}?key={key}": "GET — legacy",
+            "/health": "GET — health check"
         },
         "credit": CREDIT
     })
 
-# Route 1: /api/profile/<username>/key=<key>
+# Route 1
 @app.route('/api/profile/<username>/key=<key>', methods=['GET'])
 @require_api_key
 def get_profile_route1(username, key):
     source = request.args.get('source', 'auto').lower().strip()
     return process_profile(username, source=source)
 
-# Route 2: /api/profile/key=<key>/username=<username>
+# Route 2
 @app.route('/api/profile/key=<key>/username=<username>', methods=['GET'])
 @require_api_key
 def get_profile_route2(key, username):
     source = request.args.get('source', 'auto').lower().strip()
     return process_profile(username, source=source)
 
-# Route 3: File 1 style — /api/instagram?username=X&key=Y
+# Route 3: File 1 style
 @app.route('/api/instagram', methods=['GET'])
 def get_instagram_info_query():
     api_key = request.args.get('key', '').strip()
@@ -310,7 +309,8 @@ def get_instagram_info_query():
                         "usage": "/api/instagram?username=therock&key=your_key",
                         "credit": CREDIT}), 401
     if api_key not in VALID_KEYS:
-        return jsonify({"status": "error", "error_code": "INVALID_API_KEY", "credit": CREDIT}), 403
+        return jsonify({"status": "error", "error_code": "INVALID_API_KEY",
+                        "credit": CREDIT}), 403
     if not username:
         return jsonify({"status": "error", "error_code": "MISSING_USERNAME",
                         "usage": "/api/instagram?username=therock&key=your_key",
@@ -318,7 +318,7 @@ def get_instagram_info_query():
     source = request.args.get('source', 'auto').lower().strip()
     return process_profile(username, source=source)
 
-# Route 4: Old format /profile/<username>?key=X
+# Route 4: Old format
 @app.route('/profile/<username>', methods=['GET'])
 def get_profile_old(username):
     api_key = request.args.get('key', '').strip()
@@ -327,19 +327,19 @@ def get_profile_old(username):
                         "usage": "/profile/instagram?key=your_api_key",
                         "credit": CREDIT}), 401
     if api_key not in VALID_KEYS:
-        return jsonify({"status": "error", "error_code": "INVALID_API_KEY", "credit": CREDIT}), 403
+        return jsonify({"status": "error", "error_code": "INVALID_API_KEY",
+                        "credit": CREDIT}), 403
     source = request.args.get('source', 'auto').lower().strip()
     return process_profile(username, source=source)
 
-# Health
+# Health — koi upstream URL nahi
 @app.route('/health', methods=['GET'])
 def health():
     return jsonify({
         "status": "healthy",
-        "sources": {
-            "cloudfunction": CLOUD_FUNCTION_URL,
-            "render": EXTERNAL_API_BASE
-        },
+        "sources_configured": 2,
+        "environment": "vercel" if IS_VERCEL else "local",
+        "timeout_seconds": TIMEOUT,
         "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
         "credit": CREDIT
     })
@@ -363,22 +363,21 @@ def method_not_allowed(error):
                     "message": "Only GET allowed", "credit": CREDIT}), 405
 
 # ==============================================
-# MAIN
+# MAIN — startup prints bhi URLs hide
 # ==============================================
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     print("=" * 60)
-    print("📱 INSTAGRAM INFO API v2.0.0 (Dual Source)")
+    print("📱 INSTAGRAM INFO API v2.0.0")
     print("=" * 60)
     print(f"🚀 Running on: http://localhost:{port}")
-    print(f"☁️  Cloud Function: {CLOUD_FUNCTION_URL}")
-    print(f"🌐 Render API:     {EXTERNAL_API_BASE}")
+    print(f"🔗 Sources: 2 configured (hidden)")
     print(f"⏱️  Timeout: {TIMEOUT}s")
     print("\n📌 Usage:")
-    print("  /api/profile/instagram/key=ANSHPAPA")
-    print("  /api/profile/instagram/key=ANSHPAPA?source=cloudfunction")
-    print("  /api/profile/instagram/key=ANSHPAPA?source=render")
-    print("  /api/instagram?username=therock&key=ANSHPAPA")
+    print("  /api/profile/instagram/key=YOUR_KEY")
+    print("  /api/profile/instagram/key=YOUR_KEY?source=cloudfunction")
+    print("  /api/profile/instagram/key=YOUR_KEY?source=render")
+    print("  /api/instagram?username=therock&key=YOUR_KEY")
     print("=" * 60)
     app.run(host='0.0.0.0', port=port, debug=False)
